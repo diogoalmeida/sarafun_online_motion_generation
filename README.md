@@ -53,7 +53,7 @@ cd ros_ws
 mkdir src
 cd src
 
-git clone https://github.com/auth-arl/sarafun_online_motion_generation.git ./sarafun_hqp_omp
+git clone https://github.com/auth-arl/sarafun_online_motion_generation.git ./sarafun_hqp_omg
 cd ~/sarafun/ros_ws
 catkin_make
 source ~/sarafun/ros_ws/devel/setup.bash

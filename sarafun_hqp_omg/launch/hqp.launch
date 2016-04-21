@@ -16,17 +16,17 @@
 	
 	For ABB Yumi use this:
 	<arg name="model" default="$(find abb_irb14000_support)/urdf/irb14000.xacro" />
-	<arg name="rvizconfig" default="$(find hqp)/rviz_abb.rviz" />
+	<arg name="rvizconfig" default="$(find sarafun_hqp_omg)/rviz_abb.rviz" />
 
 	For KUKA LWR use:
 	<arg name="model" default="$(find lwr_description)/urdf/lwr_robot.xacro" />
-	<arg name="rvizconfig" default="$(find hqp)/rviz_kuka.rviz" />
+	<arg name="rvizconfig" default="$(find sarafun_hqp_omg)/rviz_kuka.rviz" />
 	-->	
 	
 	<arg name="model" default="$(find abb_irb14000_support)/urdf/irb14000.xacro" />
-	<arg name="rvizconfig" default="$(find hqp)/rviz_abb.rviz" />
+	<arg name="rvizconfig" default="$(find sarafun_hqp_omg)/rviz_abb.rviz" />
 		
-	<node pkg="hqp" name="$(arg node_name)" type="hqp" output="screen">
+	<node pkg="sarafun_hqp_omg" name="$(arg node_name)" type="sarafun_hqp_omg" output="screen">
 		<!--
 		if autostart =1, initialises and starts the node, if not it waits for calling init service
 		-->			
