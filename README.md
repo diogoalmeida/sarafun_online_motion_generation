@@ -65,7 +65,12 @@ Run the launch file:
 roslaunch sarafun_hqp_omg hqp.launch simmode:=true safetyDst:=0.1
 ```
 
-And in another terminal run the [`sarafun_hqp_omg/run.sh`](sarafun_hqp_omg/run.sh) script.
+And in another terminal run:
+
+```bash
+source ~/sarafun/ros_ws/devel/setup.bash
+~/sarafun/ros_ws/src/sarafun_hqp_omp/sarafun_hqp_omg/run.sh
+```
 
 ## Documentation
 * See comments in launch file
