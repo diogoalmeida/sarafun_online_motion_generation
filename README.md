@@ -12,7 +12,7 @@ The repository contains ROS wrapper for HQP solver, with the following tasks add
             speed-accuracy properties during trajectory formation", Psychol. Rev., 95 (1) (1988), pp. 49-90 
 
 * Component packages:
-  - `hqp`: The ROS wrapper of the HQP solver, used for Online Motion Generation
+  - `sarafun_hqp_omg`: The ROS wrapper of the HQP solver, used for Online Motion Generation
   - `lwr_description`: Description for KUKA LWR robot (obtained from here: https://github.com/gpldecha/LWR_KUKA_ROS)
 
 ## Dependencies
@@ -20,42 +20,52 @@ The repository contains ROS wrapper for HQP solver, with the following tasks add
 * Ubuntu 14.04
 * ROS Indigo  ...
 * git
+* The `abb_irb14000_support` package
 * You need the main HQP solver from https://github.com/stack-of-tasks/
 
 To build 
   
-  ```
-	mkdir ~/sarafun
-    cd ~/sarafun
-    git clone https://github.com/stack-of-tasks/soth.git
-    cd soth/cmake
-    git clone https://github.com/jrl-umi3218/jrl-cmakemodules.git ./
-    
-    cd ..
-    mkdir build
-	cd build
-	cmake ..
-	make -j4
-	sudo make install
-	LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
+```bash
+mkdir ~/sarafun
+cd ~/sarafun
+git clone https://github.com/stack-of-tasks/soth.git
+cd soth/cmake
+git clone https://github.com/jrl-umi3218/jrl-cmakemodules.git ./
 
-  ```
+cd ..
+mkdir build
+cd build
+cmake ..
+make -j4
+sudo make install
+LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
+
+```
 
 ## How to use
-	cd ~/sarafun
-	mkdir ros_ws
-	cd ros_ws 
-	mkdir src
-	cd src
-	
-	git clone https://github.com/auth-arl/sarafun_online_motion_generation.git ./sarafun_hqp_omp
-	cd ~/sarafun/ros_ws
-	catkin_make
-	source ~/sarafun/ros_ws/devel/setup.bash
-	
 
-* roslaunch hqp hqp.launch simmode:=true safetyDst:=0.1
-* See sarafun_hqp_omg/run.sh
+Setup your workspace and clone and build the packages:
+
+```bash
+cd ~/sarafun
+mkdir ros_ws
+cd ros_ws 
+mkdir src
+cd src
+
+git clone https://github.com/auth-arl/sarafun_online_motion_generation.git ./sarafun_hqp_omp
+cd ~/sarafun/ros_ws
+catkin_make
+source ~/sarafun/ros_ws/devel/setup.bash
+```
+
+Run the launch file:
+
+```bash
+roslaunch sarafun_hqp_omg hqp.launch simmode:=true safetyDst:=0.1
+```
+
+And in another terminal run the [`sarafun_hqp_omg/run.sh`](sarafun_hqp_omg/run.sh) script.
 
 ## Documentation
 * See comments in launch file
