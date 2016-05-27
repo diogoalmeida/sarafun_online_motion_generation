@@ -582,8 +582,8 @@ int main(int argc, char *argv[])
     while( ros::ok() && (start == 1)){ //We need ROS, start (that is, initiliazied HQP) and a g_new_q
       
       
-	t1 = ros::Time::now().toSec();
-	std::cout <<t1 - t0<<" , " ;
+	//t1 = ros::Time::now().toSec();
+	//std::cout <<t1 - t0<<" , " ;
 	
       
         if(useSim){
@@ -770,7 +770,7 @@ int main(int argc, char *argv[])
             //printf("time:%f\n",tic);
        }
        
-	std::cout <<( ros::Time::now().toSec() - t1 )<<"\n" ;
+	//std::cout <<( ros::Time::now().toSec() - t1 )<<"\n" ;
 
         ros::spinOnce(); // Keep spin out of control loop to keep q,pos etc. up to date
         loop_rate->sleep();
