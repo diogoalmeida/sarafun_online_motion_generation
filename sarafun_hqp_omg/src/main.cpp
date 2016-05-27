@@ -6,6 +6,7 @@
 #include <geometry_msgs/PoseStamped.h>
 #include <initHQP.h>
 #include <addObs.h>
+#include <obsav_controller.h>
 
 #include <kdl/kdl.hpp>
 #include <kdl/frames.hpp>
@@ -18,8 +19,11 @@
 // No actual need for mtxs currently..
 #include <mutex>
 
-
+#define OBS_REP_GAIN  0.002
 #define LOOP_FREQ  100.0
+
+#define ENABLE_HQP_FOR_OBS  true
+
 int Nj;              /**< Number of joints, will be read from URDF */
 const int Ntask = 6; /**< Task DOF */
 
@@ -76,6 +80,7 @@ std::string ref_pose_topic;
 
 // Controller related variables
 static hqp_wrapper *hqpw = NULL;                /**< HQP wrapper class */
+static obsav_controller *oaController = NULL;                /**< obstacle avoidance controller class */
 
 std::vector<double> ob_tmp;
 std::vector<ob_> obs;
@@ -151,6 +156,8 @@ void ref_pose_callback(const geometry_msgs::PoseStamped::ConstPtr &msg){
     g_Q_ref.x() = msg->pose.orientation.x;
     g_Q_ref.y() = msg->pose.orientation.y;
     g_Q_ref.z() = msg->pose.orientation.z;
+    
+   
 
 
     double tmp = g_Q_ref.norm();
@@ -166,6 +173,37 @@ void ref_pose_callback(const geometry_msgs::PoseStamped::ConstPtr &msg){
     std::cout <<"g_R_ref:\n" << g_R_ref<<"\n";
     rr_mtx.unlock();
 
+}
+
+/**
+ * @brief init_obsav  Initilises the obstacle avoidance controller solver
+ * @param p0       initial position
+ * @param pT       target position
+ * @return          Always works!
+ */
+bool init_obsav(void){
+  
+    Eigen::Vector3d p0 = g_x_msr;
+  
+    Eigen::Vector3d pT = g_x_ref;
+    
+    ROS_INFO("[init_obsav] Initiliazing obstacle avoidance controller\n");
+    int i;
+    if (oaController != NULL){
+        ROS_INFO("[init_obsav] Destroying previous instance\n");
+        delete oaController;
+    }
+    
+    oaController = new obsav_controller( p0 , pT );
+       
+    // Add obstacle after Joint limits and before task
+    for (i = 0; i < obs.size(); i++){
+      oaController->addObstacle(obs[i].origin, obs[i].radius , OBS_REP_GAIN);
+    }
+    
+    oaController->print();
+    return true;
+    
 }
 
 /**
@@ -186,15 +224,24 @@ bool init_hqp(PROJECT_NAME::initHQP::Request &req, PROJECT_NAME::initHQP::Respon
     hqpw->addStage("JointLimMin",Eigen::MatrixXd::Identity(Nj,Nj),0.1*(qmin-q)/dt,soth::Bound::BOUND_INF);
     hqpw->addStage("JointLimMax",Eigen::MatrixXd::Identity(Nj,Nj),0.1*(qmax-q)/dt,soth::Bound::BOUND_SUP);
     // Add obstacle after Joint limits and before task
-    for (i = 0; i < obs.size(); i++){
-        hqpw->addObstacle(obs[i].name, Eigen::MatrixXd::Zero(Ntask,Nj) ,Eigen::Vector3d::Zero(3,1),-1e6);
+    if(ENABLE_HQP_FOR_OBS){
+      for (i = 0; i < obs.size(); i++){
+	hqpw->addObstacle(obs[i].name, Eigen::MatrixXd::Zero(Ntask,Nj) ,Eigen::Vector3d::Zero(3,1),-1e6);
+      }
     }
     hqpw->addStage("Task",Eigen::MatrixXd::Zero(Ntask,Nj),Eigen::VectorXd::Zero(Ntask,1),soth::Bound::BOUND_TWIN);
     hqpw->init();
     hqpw->print();
+    
+    if(!ENABLE_HQP_FOR_OBS){
+      init_obsav();
+    }
+    
     start = 1;
     return true;
+    
 }
+
 
 /** addObs
  *  @brief Service called to add objects if ID is not already stored in obs. If found it updates existing ones
@@ -242,6 +289,52 @@ bool addObs(PROJECT_NAME::addObs::Request &req,PROJECT_NAME::addObs::Response &r
 
     return true;
 }
+
+
+/** addObs_sarafun
+ *  @brief Service called to add objects if ID is not already stored in obs. If found it updates existing ones
+ */
+bool addObs_sarafun(PROJECT_NAME::addObs::Request &req,PROJECT_NAME::addObs::Response &res){
+
+    int indx;
+    int newObs;
+    newObs = 0;
+    ROS_INFO("[addObs_sarafun] Updating  obstacles");
+    for(int i = 0 ; i < req.obs.size(); i++){
+        std::cout <<"name:" << req.obs[i].name <<"\n";
+        std::cout <<"pose:" << req.obs[i].pose.position.x <<", "<< req.obs[i].pose.position.y <<", "<< req.obs[i].pose.position.z<<"\n";
+        std::cout <<"axes:" << req.obs[i].axes.x <<"\n";
+
+    }
+    for(int i = 0 ; i < req.obs.size(); i++){
+        indx = -1;
+        //Check if exists
+        for(int j = 0 ; j < obs.size(); j++){
+            if(obs[j].name == req.obs[i].name)
+                indx = j;
+        }
+        if(indx == -1){ // Object does not exists
+            newObs = 1;
+            obs.push_back(ob); //insert whatever,
+            indx = obs.size()-1;
+        }
+        std::cout <<"indx: "<< indx << " i:" << i <<"\n";
+        obs[indx].origin << req.obs[i].pose.position.x, req.obs[i].pose.position.y, req.obs[i].pose.position.z;
+        obs[indx].radius = req.obs[i].axes.x;
+        obs[indx].name = req.obs[i].name;
+    }
+    ROS_INFO("[addObs_sarafun] Initialization and update of obsav_controller ...");
+    init_obsav();
+    for(int i = 0; i < obs.size(); i++){
+        oaController->updObstacle( i , obs[i].origin, obs[indx].radius , OBS_REP_GAIN);
+        ROS_INFO("[addObs_sarafun] Register obstacle ob%d, orig: %f,%f,%f, radius:%f",i+1,obs[i].origin[0],obs[i].origin[1],obs[i].origin[2],obs[i].radius);
+    }
+    
+    oaController->print();
+
+    return true;
+}
+
 
 
 int main(int argc, char *argv[])
@@ -418,7 +511,11 @@ int main(int argc, char *argv[])
 
 
         init_Service = nh->advertiseService("init_HQP", init_hqp);
-        addObs_Service = nh->advertiseService("addObs_HQP", addObs);
+	if(ENABLE_HQP_FOR_OBS){
+	  addObs_Service = nh->advertiseService("addObs_HQP", addObs);
+	}else{
+	  addObs_Service = nh->advertiseService("addObs_HQP", addObs_sarafun);
+	}
 
         for(i = 0; i<Nj; i++){
             qmin(i) = joint_lim_min[i];
@@ -477,10 +574,18 @@ int main(int argc, char *argv[])
 
     static double b;
     int new_ref = g_new_ref;
-
+    double t1 = 0;
+    double t0 = ros::Time::now().toSec();
+    
+    
     ros::spinOnce(); //Spin once to update topics..
     while( ros::ok() && (start == 1)){ //We need ROS, start (that is, initiliazied HQP) and a g_new_q
-
+      
+      
+	t1 = ros::Time::now().toSec();
+	std::cout <<t1 - t0<<" , " ;
+	
+      
         if(useSim){
             g_new_q = 1;
             g_q += (dt*solution);
@@ -591,28 +696,37 @@ int main(int argc, char *argv[])
             // ew = -0.4*kd*th;
             // ep = -0.4* (x_m - x_ref);
 
-            e << ep,ew;
+	    if(ENABLE_HQP_FOR_OBS){
+	      e << ep,ew;
+	    }else{
+	      e << ep + oaController->getControlSignal(x_m),ew;
+	    }
 
-
-            // Update HQP solver joint limits
+	   // ROS_INFO("[main] control signal: [%f, %f, %f]",oaController->getControlSignal(x_m)[0],oaController->getControlSignal(x_m)[1],oaController->getControlSignal(x_m)[2]);
+	   //  ROS_INFO("[main] e: [%f, %f, %f, %f, %f, %f]",e[0],e[1],e[2],e[3],e[4],e[5]);
+	    
+            // Update HQP solver joint limit
             hqpw->updBounds("JointLimMin",0.01*(qmin-q_.data)/dt);
             hqpw->updBounds("JointLimMax",0.01*(qmax-q_.data)/dt);
-
+	    //hqpw->print();
+	    
             // Update Obstacles
-            for(i=0; i<obs.size();i++){
-                n = x_m - obs[i].origin ;
-                n.normalize();
-                b =  0.01*(safeDst + obs[i].radius + n.dot(obs[i].origin - x_m) )/dt;
-                //    printf("i:%u, 200.00Hzb:%f\n",i,b);
-                //     std::cout << "n:\n" <<n <<"\n";
-                hqpw->updObstacle(obs[i].name,J_.data,n,b);
-            }
+	    if(ENABLE_HQP_FOR_OBS){
+	      for(i=0; i<obs.size();i++){
+		  n = x_m - obs[i].origin ;
+		  n.normalize();
+		  b =  0.01*(safeDst + obs[i].radius + n.dot(obs[i].origin - x_m) )/dt;
+		  //    printf("i:%u, 200.00Hzb:%f\n",i,b);
+		  //     std::cout << "n:\n" <<n <<"\n";
+		  hqpw->updObstacle(obs[i].name,J_.data,n,b);
+	      }
+	    }
             //  Update Task
             hqpw->updTask("Task",J_.data,e);
 
             // Solve...
             hqpw->solve(solution);
-
+	    //hqpw->print();
 
             // Apply safety velocity limits, could use limits form urdf in future version
             for(i = 0; i < Nj; i++){
@@ -655,6 +769,8 @@ int main(int argc, char *argv[])
             tic = ((double)tv.tv_sec + 1.0e-9*tv.tv_nsec) - tic;
             //printf("time:%f\n",tic);
        }
+       
+	std::cout <<( ros::Time::now().toSec() - t1 )<<"\n" ;
 
         ros::spinOnce(); // Keep spin out of control loop to keep q,pos etc. up to date
         loop_rate->sleep();

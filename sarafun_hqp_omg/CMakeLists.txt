@@ -44,7 +44,7 @@ message(STATUS "Eigen3 found at:" ${EIGEN3_INCLUDE_DIR})
 ##     * add a run_depend tag for "message_runtime"
 ## * In this file (CMakeLists.txt):
 ##   * add "message_generation" and every package in MSG_DEP_SET to
-##     find_package(catkin REQUIRED COMPONENTS ...)
+##     find_package(catkin REQUIRED COMPONENTS ...)file:///home/dimpapag/sarafun/ros_ws/src/sarafun_hqp_omg/sarafun_hqp_omg/src/hqp_wrapper.cpp
 ##   * add "message_runtime" and every package in MSG_DEP_SET to
 ##     catkin_package(CATKIN_DEPENDS ...)
 ##   * uncomment the add_*_files sections below as needed
@@ -103,7 +103,7 @@ include_directories(
 
 
 # Set your files and resources here
-set( Srcs src/main.cpp src/hqp_wrapper.cpp srv/initHQP.srv srv/addObs.srv msg/obstacle.msg)
+set( Srcs src/main.cpp src/hqp_wrapper.cpp src/obsav_controller.cpp  src/obstacle.cpp srv/initHQP.srv srv/addObs.srv msg/obstacle.msg)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
