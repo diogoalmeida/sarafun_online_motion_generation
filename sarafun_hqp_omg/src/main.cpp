@@ -601,6 +601,10 @@ void controlCallback(const sarafun_hqp_omg::OnlineMotionGoalConstPtr &goal)
     bool success = false;
 
     ROS_INFO("%s server called! Will execute", actionlib_server_name.c_str());
+
+    getReferencePose();
+    getObstacles();
+
     while( ros::ok() && (start == 1)){ //We need ROS, start (that is, initiliazied HQP) and a g_new_q
         //t1 = ros::Time::now().toSec();
         //std::cout <<t1 - t0<<" , " ;
@@ -642,7 +646,7 @@ int main(int argc, char *argv[])
     ros::init(argc, argv, "hqp_node");
     if(ros::master::check()){
         ROS_INFO_STREAM("HQP client saluts you...");
-        actionlib_server_name = ros::this_node::getName()+ "/action_server";
+        actionlib_server_name = "sarafun/motion/online";
 
         nh = new ros::NodeHandle("~"); //http://answers.ros.org/question/135181/roscpp-parameters-with-roslaunch-remapping/
         as = new actionlib::SimpleActionServer<sarafun_hqp_omg::OnlineMotionAction> (actionlib_server_name, boost::bind(&controlCallback, _1), false);
@@ -837,25 +841,8 @@ int main(int argc, char *argv[])
     beta = alpha/4.0;
     kd << 1,0,0;
 
-    ros::spinOnce(); //Spin once to update topics..
-    while( ros::ok() && (start == 1)){ //We need ROS, start (that is, initiliazied HQP) and a g_new_q
-
-
-	   //t1 = ros::Time::now().toSec();
-	   //std::cout <<t1 - t0<<" , " ;
-
-        if(useSim)
-        {
-            drawObstacles();
-        }
-
-        controlIteration(new_ref);
-
-	    //std::cout <<( ros::Time::now().toSec() - t1 )<<"\n" ;
-
-        ros::spinOnce(); // Keep spin out of control loop to keep q,pos etc. up to date
-        loop_rate->sleep();
-    }
+    as->start();
+    ros::spin();
 
     ROS_INFO_STREAM("HQP is going down!");
     ros::shutdown();
