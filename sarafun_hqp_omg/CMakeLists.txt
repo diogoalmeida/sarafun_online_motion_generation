@@ -19,9 +19,12 @@ find_package(catkin REQUIRED COMPONENTS
     roscpp
     kdl_parser
     message_generation
+    actionlib
+    actionlib_msgs
     genmsg
     geometry_msgs
 )
+find_package(Boost REQUIRED COMPONENTS system)
 
 # Just to make included headers from msg,srv.. project name irrelevant
 ADD_DEFINITIONS(-DPROJECT_NAME=${PROJECT_NAME})
@@ -58,6 +61,11 @@ add_message_files(
   obstacle.msg
 )
 
+add_action_files(
+  DIRECTORY action
+  FILES OnlineMotion.action
+)
+
 ## Generate services in the 'srv' folder
 add_service_files(
   FILES
@@ -66,7 +74,7 @@ add_service_files(
 )
 
 ## Generate added messages and services with any dependencies listed here
-generate_messages(DEPENDENCIES std_msgs geometry_msgs)
+generate_messages(DEPENDENCIES actionlib_msgs std_msgs geometry_msgs)
 
 
 ###################################
@@ -81,7 +89,7 @@ generate_messages(DEPENDENCIES std_msgs geometry_msgs)
 catkin_package(
   INCLUDE_DIRS include
   LIBRARIES
-  CATKIN_DEPENDS  roscpp std_msgs message_runtime
+  CATKIN_DEPENDS  roscpp actionlib_msgs std_msgs message_runtime
   DEPENDS orocos_kdl
 )
 
@@ -116,6 +124,7 @@ add_library(${PROJECT_NAME}_testlib ${Srcs} ${ALL_HEADERS})
 add_executable(${PROJECT_NAME}      ${Srcs} ${ALL_HEADERS})
 #set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 11)
 target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES}  armadillo soth)
+
 
 
 # Find the absolute path to the orocos-kdl library

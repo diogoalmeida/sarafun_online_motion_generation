@@ -2,6 +2,8 @@
 
 #include <ros/ros.h>
 #include <ros/service_server.h>
+#include <actionlib/server/simple_action_server.h>
+#include <sarafun_hqp_omg/OnlineMotionAction.h>
 #include <sensor_msgs/JointState.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <initHQP.h>
@@ -62,6 +64,7 @@ typedef struct {
 
 // ROS related variables
 static ros::NodeHandle *nh;
+static actionlib::SimpleActionServer<sarafun_hqp_omg::OnlineMotionAction> *as;
 static ros::Rate *loop_rate;
 static ros::Publisher joint_publisher;
 static ros::Subscriber msr_q_subscr;
@@ -394,6 +397,8 @@ void getObstacles()
     }
 }
 
+/** drawObstacles
+ */
 void drawObstacles()
 {
     int i;
@@ -411,6 +416,8 @@ void drawObstacles()
     }
 }
 
+/** controlIteration
+ */
 void controlIteration(int new_ref)
 {
     int i;
@@ -585,13 +592,26 @@ void controlIteration(int new_ref)
    }
 }
 
+/** controlCallback
+* @goal: actionlib goal received when server is called
+ */
+void controlCallback(const sarafun_hqp_omg::OnlineMotionGoalConstPtr &goal)
+{
+
+}
+
 int main(int argc, char *argv[])
 {
     int i;
+
     ros::init(argc, argv, "hqp_node");
     if(ros::master::check()){
         ROS_INFO_STREAM("HQP client saluts you...");
+        std::string actionlib_server_name = ros::this_node::getName()+ "/action_server";
+
         nh = new ros::NodeHandle("~"); //http://answers.ros.org/question/135181/roscpp-parameters-with-roslaunch-remapping/
+        as = new actionlib::SimpleActionServer<sarafun_hqp_omg::OnlineMotionAction> (actionlib_server_name, boost::bind(&controlCallback, _1), false);
+
         loop_rate = new ros::Rate(LOOP_FREQ);
 
         if(!model.initParam(ros::this_node::getName()+ "/robot_description")){
