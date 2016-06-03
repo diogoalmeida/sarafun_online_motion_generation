@@ -78,7 +78,7 @@ std::string msr_q_topic;
 std::string cmd_q_topic;
 std::string msr_pose_topic;
 std::string ref_pose_topic;
-
+std::string actionlib_server_name;
 
 
 // Controller related variables
@@ -597,7 +597,42 @@ void controlIteration(int new_ref)
  */
 void controlCallback(const sarafun_hqp_omg::OnlineMotionGoalConstPtr &goal)
 {
+    int new_ref = g_new_ref;
+    bool success = false;
 
+    ROS_INFO("%s server called! Will execute", actionlib_server_name.c_str());
+    while( ros::ok() && (start == 1)){ //We need ROS, start (that is, initiliazied HQP) and a g_new_q
+        //t1 = ros::Time::now().toSec();
+        //std::cout <<t1 - t0<<" , " ;
+
+         if (as->isPreemptRequested() || !ros::ok())
+         {
+             ROS_INFO("%s: Preempted", actionlib_server_name.c_str());
+             // set the action state to preempted
+             as->setPreempted();
+             success = false;
+             break;
+         }
+
+         if(useSim)
+         {
+             drawObstacles();
+         }
+
+         controlIteration(new_ref);
+
+         //std::cout <<( ros::Time::now().toSec() - t1 )<<"\n" ;
+
+         ros::spinOnce(); // Keep spin out of control loop to keep q,pos etc. up to date
+         loop_rate->sleep();
+     }
+
+     if(success)
+     {
+         ROS_INFO("%s: Succeeded", actionlib_server_name.c_str());
+         // set the action state to succeeded
+         as->setSucceeded();
+     }
 }
 
 int main(int argc, char *argv[])
@@ -607,7 +642,7 @@ int main(int argc, char *argv[])
     ros::init(argc, argv, "hqp_node");
     if(ros::master::check()){
         ROS_INFO_STREAM("HQP client saluts you...");
-        std::string actionlib_server_name = ros::this_node::getName()+ "/action_server";
+        actionlib_server_name = ros::this_node::getName()+ "/action_server";
 
         nh = new ros::NodeHandle("~"); //http://answers.ros.org/question/135181/roscpp-parameters-with-roslaunch-remapping/
         as = new actionlib::SimpleActionServer<sarafun_hqp_omg::OnlineMotionAction> (actionlib_server_name, boost::bind(&controlCallback, _1), false);
