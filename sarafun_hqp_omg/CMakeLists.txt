@@ -12,7 +12,7 @@ set(CMAKE_AUTOMOC ON)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-
+set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR})
 find_package(orocos_kdl REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(catkin REQUIRED COMPONENTS
