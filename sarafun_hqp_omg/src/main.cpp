@@ -105,6 +105,22 @@ KDL::Jacobian J_;
 KDL::JntArray q_;
 KDL::Frame Fr_;
 
+ros::Publisher marker_pub;
+visualization_msgs::Marker marker;
+static struct timespec tv;
+static volatile double tic;
+
+double th;
+Eigen::Matrix3d tmp_M3d;
+
+
+static double alpha;
+static double beta;
+
+Eigen::Vector3d pdddot,pddot,pd, kd;
+static double theta_dddot=0, theta_ddot=0, theta_d;
+static double wd,wd_max;
+double t0, t1;
 
 
 inline void toEigen(Eigen::Vector3d &V, const KDL::Vector& V_ ) {
@@ -156,8 +172,8 @@ void ref_pose_callback(const geometry_msgs::PoseStamped::ConstPtr &msg){
     g_Q_ref.x() = msg->pose.orientation.x;
     g_Q_ref.y() = msg->pose.orientation.y;
     g_Q_ref.z() = msg->pose.orientation.z;
-    
-   
+
+
 
 
     double tmp = g_Q_ref.norm();
@@ -182,28 +198,28 @@ void ref_pose_callback(const geometry_msgs::PoseStamped::ConstPtr &msg){
  * @return          Always works!
  */
 bool init_obsav(void){
-  
+
     Eigen::Vector3d p0 = g_x_msr;
-  
+
     Eigen::Vector3d pT = g_x_ref;
-    
+
     ROS_INFO("[init_obsav] Initiliazing obstacle avoidance controller\n");
     int i;
     if (oaController != NULL){
         ROS_INFO("[init_obsav] Destroying previous instance\n");
         delete oaController;
     }
-    
+
     oaController = new obsav_controller( p0 , pT );
-       
+
     // Add obstacle after Joint limits and before task
     for (i = 0; i < obs.size(); i++){
       oaController->addObstacle(obs[i].origin, obs[i].radius , OBS_REP_GAIN);
     }
-    
+
     oaController->print();
     return true;
-    
+
 }
 
 /**
@@ -232,14 +248,14 @@ bool init_hqp(PROJECT_NAME::initHQP::Request &req, PROJECT_NAME::initHQP::Respon
     hqpw->addStage("Task",Eigen::MatrixXd::Zero(Ntask,Nj),Eigen::VectorXd::Zero(Ntask,1),soth::Bound::BOUND_TWIN);
     hqpw->init();
     hqpw->print();
-    
+
     if(!ENABLE_HQP_FOR_OBS){
       init_obsav();
     }
-    
+
     start = 1;
     return true;
-    
+
 }
 
 
@@ -329,20 +345,248 @@ bool addObs_sarafun(PROJECT_NAME::addObs::Request &req,PROJECT_NAME::addObs::Res
         oaController->updObstacle( i , obs[i].origin, obs[indx].radius , OBS_REP_GAIN);
         ROS_INFO("[addObs_sarafun] Register obstacle ob%d, orig: %f,%f,%f, radius:%f",i+1,obs[i].origin[0],obs[i].origin[1],obs[i].origin[2],obs[i].radius);
     }
-    
+
     oaController->print();
 
     return true;
 }
 
+/** getReferencePose
+ */
+void getReferencePose()
+{
+    if(!nh->getParam("ref_pose",ref_pose)){
+        ROS_INFO("No ref pose set, use measured intial pose\n");
+        task_start = 0;
+        g_new_ref = 0;
+    }
+    else{
+        x_ref << ref_pose[0],ref_pose[1],ref_pose[2];
+        Q_ref.w() = ref_pose[3];
+        Q_ref.x() = ref_pose[4];
+        Q_ref.y() = ref_pose[5];
+        Q_ref.z() = ref_pose[6];
+        R_ref = Q_ref.toRotationMatrix();
+        ROS_INFO("Ref pose set to, x:%f, y:%f, z:%f",x_ref[0],x_ref[1],x_ref[2]);
+        task_start = 1;
+        g_new_ref = 1;
+    }
+    // Initialize globals,msgs before subscribing
+    g_q = q;
+    g_x_ref = x_ref;
+    g_x_msr = x_ref;
+    g_Q_ref = Q_ref;
+    g_R_ref = R_ref;
+}
 
+/** getObstacles
+ */
+void getObstacles()
+{
+    int i = 1;
+    while(nh->getParam("ob"+std::to_string(i),ob_tmp)){
+        ROS_INFO("Found obstacle ob%d, orig: %f,%f,%f, radius:%f",i,ob_tmp[0],ob_tmp[1],ob_tmp[2],ob_tmp[3]);
+        ob.origin << ob_tmp[0],ob_tmp[1],ob_tmp[2];
+        ob.radius = ob_tmp[3];
+        ob.name = "ob"+std::to_string(i);
+        obs.push_back(ob);
+        i++;
+    }
+}
+
+void drawObstacles()
+{
+    int i;
+    g_new_q = 1;
+    g_q += (dt*solution);
+    for(i=0; i<obs.size();i++){
+        marker.id = i;
+        marker.pose.position.x = obs[i].origin[0];
+        marker.pose.position.y = obs[i].origin[1];
+        marker.pose.position.z = obs[i].origin[2];
+        marker.scale.x = 2*obs[i].radius;
+        marker.scale.y = 2*obs[i].radius;
+        marker.scale.z = 2*obs[i].radius;
+        marker_pub.publish(marker);
+    }
+}
+
+void controlIteration(int new_ref)
+{
+    int i;
+    static double b;
+    // Execute only when g_new_q is set, that is we have updated q
+    if( (g_new_q == 1)){
+        clock_gettime(CLOCK_MONOTONIC_RAW,&tv);
+        tic = ((double)tv.tv_sec + 1.0e-9*tv.tv_nsec);
+
+        rr_mtx.lock();          //< No need for mtxs, callbacks are executed now in same thread
+        q_.data = g_q;          //< Pass global variables to controllers local ones, as before no needed currently
+        x_ref = g_x_ref;
+        R_ref = g_R_ref;
+        new_ref = g_new_ref;
+        g_new_ref = 0;
+        rr_mtx.unlock();
+
+
+        if(useFK == 1 ){        //< Calculate pose from urdf tree
+            fkSolver_->JntToCart(q_,Fr_);
+            toEigen(x_m,Fr_.p);
+            toEigen(R_msr,Fr_.M);
+        }
+        else{                   //< Read x_m  from topic (g_x_msr, g_R_msr)
+            rr_mtx.lock();
+            x_m = g_x_msr;
+            R_msr = g_R_msr;
+            rr_mtx.unlock();
+        }
+
+        JacSolver_->JntToJac(q_,J_);
+
+        //  Main task controller
+        /**
+        The dynamical system that we used in this implementation is the bio-inspired dynamical model VITE  [1],
+
+        [1] S. Bullock, Daniel Grossberg "Neural dynamics of planned arm movements: Emergent invariants and
+        speed-accuracy properties during trajectory formation", Psychol. Rev., 95 (1) (1988), pp. 4990
+        */
+
+        ep = x_m - x_ref;
+        dR = R_msr.transpose() *R_ref  ; // If R_ref equals 0, dR and th =0, keeps orientation the same
+
+        th = acos((dR.trace()-1)/2);
+        if(fabs(th)>1e-8){
+            kd(0) = (dR(2,1) - dR(1,2))/(2*sin(th)) ;
+            kd(1) = (dR(0,2) - dR(2,0))/(2*sin(th)) ;
+            kd(2) = (dR(1,0) - dR(0,1))/(2*sin(th)) ;
+        }else{
+            kd << 1,0,0;
+            th = 0;
+        }
+        kd = R_msr*kd;
+
+
+        if(new_ref == 1){       //< Executed only once when new refence pose is obtained
+            pd = x_m;
+            std::cout <<"x_ref:\n" << x_ref << "\n";
+            std::cout <<"pd:\n" << pd << "\n";
+
+            theta_d = th;
+            pddot = Eigen::Vector3d::Zero(3,1);
+            pdddot = Eigen::Vector3d::Zero(3,1);
+            sol_prev = Eigen::VectorXd::Zero(Nj,1);
+
+            theta_ddot = 0;
+            theta_dddot = 0;
+            new_ref = 0;
+        }
+
+        // If Q are 0, g_R_ref is set to 0, and dR->0
+        // Second order VITE DS
+        if ( (fabs(th) > 1e-8) && (th < (M_PI-1e-8)) )
+            tmp_M3d = th/(2*dt*sin(th))*(dR - dR.transpose());
+        else
+            tmp_M3d = Eigen::Matrix3d::Zero(3,3);
+
+        pdddot = alpha*(-pddot-beta*ep);
+        pddot += pdddot*dt;
+
+        if((x_m - pd).norm()<0.2)
+            pd += pddot*dt;
+
+        ep = pddot - 4.0*(x_m - pd);
+
+        theta_dddot = alpha*(-theta_ddot + beta*th);
+        theta_ddot += theta_dddot*dt;
+        theta_d += theta_ddot*dt;
+
+        if(fabs(th)<1e-8){
+            theta_d = 0;
+            theta_ddot = 0;
+        }
+
+        ew = kd * ( (theta_ddot)  - 0.01 * (th - theta_d) );
+        // Proportional only
+        // ew = -0.4*kd*th;
+        // ep = -0.4* (x_m - x_ref);
+
+    if(ENABLE_HQP_FOR_OBS){
+      e << ep,ew;
+    }else{
+      e << ep + oaController->getControlSignal(x_m),ew;
+    }
+
+   // ROS_INFO("[main] control signal: [%f, %f, %f]",oaController->getControlSignal(x_m)[0],oaController->getControlSignal(x_m)[1],oaController->getControlSignal(x_m)[2]);
+   //  ROS_INFO("[main] e: [%f, %f, %f, %f, %f, %f]",e[0],e[1],e[2],e[3],e[4],e[5]);
+
+        // Update HQP solver joint limit
+        hqpw->updBounds("JointLimMin",0.01*(qmin-q_.data)/dt);
+        hqpw->updBounds("JointLimMax",0.01*(qmax-q_.data)/dt);
+    //hqpw->print();
+
+        // Update Obstacles
+    if(ENABLE_HQP_FOR_OBS){
+      for(i=0; i<obs.size();i++){
+      n = x_m - obs[i].origin ;
+      n.normalize();
+      b =  0.01*(safeDst + obs[i].radius + n.dot(obs[i].origin - x_m) )/dt;
+      //    printf("i:%u, 200.00Hzb:%f\n",i,b);
+      //     std::cout << "n:\n" <<n <<"\n";
+      hqpw->updObstacle(obs[i].name,J_.data,n,b);
+      }
+    }
+        //  Update Task
+        hqpw->updTask("Task",J_.data,e);
+
+        // Solve...
+        hqpw->solve(solution);
+    //hqpw->print();
+
+        // Apply safety velocity limits, could use limits form urdf in future version
+        for(i = 0; i < Nj; i++){
+            // Velocity Limit
+            solution(i) = SATUR(solution(i),80.0*M_PI/180.0); //10dps
+            // Acceleration Limit
+            //                wd = (solution(i) - sol_prev(i)) / dt;
+            //                wd = SATUR(wd,wd_max); //
+            //                solution(i) = wd*dt + sol_prev(i);
+            //                sol_prev(i) = solution(i);
+        }
+
+        // Send velocity solution to topic, position is propagated in order to inform low level controller about the expected end position of the current step.
+        // For example if something goes wrong and communication is lost the low level controller should start reducing reference velocity if position is exceeded..!!!
+        q_.data += 2.0*dt*solution; //Allow for a few lost samples.. (2x dt)
+        // First Nj joints, are for the first arm!!! will probably change
+        if( task_start == 0){
+            for(i=0; i<Nj; i++){
+                msg.position[i] = q_.data[i];
+                msg.velocity[i] = 0;
+                msg.effort[i] = 0;
+            }
+        }
+        else{
+            for(i=0; i<Nj; i++){
+                msg.position[i] = q_.data[i];
+                msg.velocity[i] = solution[i];
+                msg.effort[i] = 0;
+            }
+        }
+        msg.header.stamp = ros::Time::now();
+        joint_publisher.publish(msg);
+
+        //std::cout <<"ep:\n" << ep <<"\n\n";
+        //std::cout <<"x_m:\n" << x_m <<"\n\n";
+        //std::cout <<"x_ref:\n" << x_ref <<"\n\n";
+        //std::cout <<"q:\n"<< q*180.0/M_PI <<"\n\n";
+
+        clock_gettime(CLOCK_MONOTONIC_RAW,&tv);
+        tic = ((double)tv.tv_sec + 1.0e-9*tv.tv_nsec) - tic;
+        //printf("time:%f\n",tic);
+   }
+}
 
 int main(int argc, char *argv[])
 {
-    ros::Publisher marker_pub;
-    visualization_msgs::Marker marker;
-
-
     int i;
     ros::init(argc, argv, "hqp_node");
     if(ros::master::check()){
@@ -442,38 +686,9 @@ int main(int argc, char *argv[])
         q_.resize(Nj);
         Fr_ = KDL::Frame::Identity();
 
-        if(!nh->getParam("ref_pose",ref_pose)){
-            ROS_INFO("No ref pose set, use measured intial pose\n");
-            task_start = 0;
-            g_new_ref = 0;
-        }
-        else{
-            x_ref << ref_pose[0],ref_pose[1],ref_pose[2];
-            Q_ref.w() = ref_pose[3];
-            Q_ref.x() = ref_pose[4];
-            Q_ref.y() = ref_pose[5];
-            Q_ref.z() = ref_pose[6];
-            R_ref = Q_ref.toRotationMatrix();
-            ROS_INFO("Ref pose set to, x:%f, y:%f, z:%f",x_ref[0],x_ref[1],x_ref[2]);
-            task_start = 1;
-            g_new_ref = 1;
-        }
-        // Initialize globals,msgs before subscribing
-        g_q = q;
-        g_x_ref = x_ref;
-        g_x_msr = x_ref;
-        g_Q_ref = Q_ref;
-        g_R_ref = R_ref;
+        getReferencePose();
+        getObstacles();
 
-        i = 1;
-        while(nh->getParam("ob"+std::to_string(i),ob_tmp)){
-            ROS_INFO("Found obstacle ob%d, orig: %f,%f,%f, radius:%f",i,ob_tmp[0],ob_tmp[1],ob_tmp[2],ob_tmp[3]);
-            ob.origin << ob_tmp[0],ob_tmp[1],ob_tmp[2];
-            ob.radius = ob_tmp[3];
-            ob.name = "ob"+std::to_string(i);
-            obs.push_back(ob);
-            i++;
-        }
         // Need a topic to read robot's q
         if(!nh->getParam("msr_q_topic",msr_q_topic)){
             ROS_ERROR("ERROR getting msr_q_topic \n");
@@ -554,223 +769,34 @@ int main(int argc, char *argv[])
         return -1;  //
     }
 
-    static struct timespec tv;
-    static volatile double tic;
-
-    double th;
-    Eigen::Matrix3d tmp_M3d;
-    Eigen::Vector3d pdddot,pddot,pd, kd;
-
-    static double alpha = 1.0;
-    static double beta = alpha/4.0;
-    kd << 1,0,0;
-    static double theta_dddot=0, theta_ddot=0, theta_d;
-    static double wd,wd_max = 20;
-
-
     std::cout <<"Rref:\n" << R_ref <<"\n";
     tmp_M3d = Eigen::Matrix3d::Zero(3,3);
     ROS_INFO("Starting hqp loop");
 
-    static double b;
+
     int new_ref = g_new_ref;
     double t1 = 0;
     double t0 = ros::Time::now().toSec();
-    
-    
+    wd_max = 20;
+    alpha = 1.0;
+    beta = alpha/4.0;
+    kd << 1,0,0;
+
     ros::spinOnce(); //Spin once to update topics..
     while( ros::ok() && (start == 1)){ //We need ROS, start (that is, initiliazied HQP) and a g_new_q
-      
-      
-	//t1 = ros::Time::now().toSec();
-	//std::cout <<t1 - t0<<" , " ;
-	
-      
-        if(useSim){
-            g_new_q = 1;
-            g_q += (dt*solution);
-            for(i=0; i<obs.size();i++){
-                marker.id = i;
-                marker.pose.position.x = obs[i].origin[0];
-                marker.pose.position.y = obs[i].origin[1];
-                marker.pose.position.z = obs[i].origin[2];
-                marker.scale.x = 2*obs[i].radius;
-                marker.scale.y = 2*obs[i].radius;
-                marker.scale.z = 2*obs[i].radius;
-                marker_pub.publish(marker);
-            }
+
+
+	   //t1 = ros::Time::now().toSec();
+	   //std::cout <<t1 - t0<<" , " ;
+
+        if(useSim)
+        {
+            drawObstacles();
         }
 
-        // Execute only when g_new_q is set, that is we have updated q
-        if( (g_new_q == 1)){
-            clock_gettime(CLOCK_MONOTONIC_RAW,&tv);
-            tic = ((double)tv.tv_sec + 1.0e-9*tv.tv_nsec);
+        controlIteration(new_ref);
 
-            rr_mtx.lock();          //< No need for mtxs, callbacks are executed now in same thread
-            q_.data = g_q;          //< Pass global variables to controllers local ones, as before no needed currently
-            x_ref = g_x_ref;
-            R_ref = g_R_ref;
-            new_ref = g_new_ref;
-            g_new_ref = 0;
-            rr_mtx.unlock();
-
-
-            if(useFK == 1 ){        //< Calculate pose from urdf tree
-                fkSolver_->JntToCart(q_,Fr_);
-                toEigen(x_m,Fr_.p);
-                toEigen(R_msr,Fr_.M);
-            }
-            else{                   //< Read x_m  from topic (g_x_msr, g_R_msr)
-                rr_mtx.lock();
-                x_m = g_x_msr;
-                R_msr = g_R_msr;
-                rr_mtx.unlock();
-            }
-
-            JacSolver_->JntToJac(q_,J_);
-
-            //  Main task controller
-            /**
-            The dynamical system that we used in this implementation is the bio-inspired dynamical model VITE  [1],
-
-            [1] S. Bullock, Daniel Grossberg "Neural dynamics of planned arm movements: Emergent invariants and
-            speed-accuracy properties during trajectory formation", Psychol. Rev., 95 (1) (1988), pp. 4990
-            */
-
-            ep = x_m - x_ref;
-            dR = R_msr.transpose() *R_ref  ; // If R_ref equals 0, dR and th =0, keeps orientation the same
-
-            th = acos((dR.trace()-1)/2);
-            if(fabs(th)>1e-8){
-                kd(0) = (dR(2,1) - dR(1,2))/(2*sin(th)) ;
-                kd(1) = (dR(0,2) - dR(2,0))/(2*sin(th)) ;
-                kd(2) = (dR(1,0) - dR(0,1))/(2*sin(th)) ;
-            }else{
-                kd << 1,0,0;
-                th = 0;
-            }
-            kd = R_msr*kd;
-
-
-            if(new_ref == 1){       //< Executed only once when new refence pose is obtained
-                pd = x_m;
-                std::cout <<"x_ref:\n" << x_ref << "\n";
-                std::cout <<"pd:\n" << pd << "\n";
-
-                theta_d = th;
-                pddot = Eigen::Vector3d::Zero(3,1);
-                pdddot = Eigen::Vector3d::Zero(3,1);
-                sol_prev = Eigen::VectorXd::Zero(Nj,1);
-
-                theta_ddot = 0;
-                theta_dddot = 0;
-                new_ref = 0;
-            }
-
-            // If Q are 0, g_R_ref is set to 0, and dR->0
-            // Second order VITE DS
-            if ( (fabs(th) > 1e-8) && (th < (M_PI-1e-8)) )
-                tmp_M3d = th/(2*dt*sin(th))*(dR - dR.transpose());
-            else
-                tmp_M3d = Eigen::Matrix3d::Zero(3,3);
-
-            pdddot = alpha*(-pddot-beta*ep);
-            pddot += pdddot*dt;
-
-            if((x_m - pd).norm()<0.2)
-                pd += pddot*dt;
-
-            ep = pddot - 4.0*(x_m - pd);
-
-            theta_dddot = alpha*(-theta_ddot + beta*th);
-            theta_ddot += theta_dddot*dt;
-            theta_d += theta_ddot*dt;
-
-            if(fabs(th)<1e-8){
-                theta_d = 0;
-                theta_ddot = 0;
-            }
-
-            ew = kd * ( (theta_ddot)  - 0.01 * (th - theta_d) );
-            // Proportional only
-            // ew = -0.4*kd*th;
-            // ep = -0.4* (x_m - x_ref);
-
-	    if(ENABLE_HQP_FOR_OBS){
-	      e << ep,ew;
-	    }else{
-	      e << ep + oaController->getControlSignal(x_m),ew;
-	    }
-
-	   // ROS_INFO("[main] control signal: [%f, %f, %f]",oaController->getControlSignal(x_m)[0],oaController->getControlSignal(x_m)[1],oaController->getControlSignal(x_m)[2]);
-	   //  ROS_INFO("[main] e: [%f, %f, %f, %f, %f, %f]",e[0],e[1],e[2],e[3],e[4],e[5]);
-	    
-            // Update HQP solver joint limit
-            hqpw->updBounds("JointLimMin",0.01*(qmin-q_.data)/dt);
-            hqpw->updBounds("JointLimMax",0.01*(qmax-q_.data)/dt);
-	    //hqpw->print();
-	    
-            // Update Obstacles
-	    if(ENABLE_HQP_FOR_OBS){
-	      for(i=0; i<obs.size();i++){
-		  n = x_m - obs[i].origin ;
-		  n.normalize();
-		  b =  0.01*(safeDst + obs[i].radius + n.dot(obs[i].origin - x_m) )/dt;
-		  //    printf("i:%u, 200.00Hzb:%f\n",i,b);
-		  //     std::cout << "n:\n" <<n <<"\n";
-		  hqpw->updObstacle(obs[i].name,J_.data,n,b);
-	      }
-	    }
-            //  Update Task
-            hqpw->updTask("Task",J_.data,e);
-
-            // Solve...
-            hqpw->solve(solution);
-	    //hqpw->print();
-
-            // Apply safety velocity limits, could use limits form urdf in future version
-            for(i = 0; i < Nj; i++){
-                // Velocity Limit
-                solution(i) = SATUR(solution(i),80.0*M_PI/180.0); //10dps
-                // Acceleration Limit
-                //                wd = (solution(i) - sol_prev(i)) / dt;
-                //                wd = SATUR(wd,wd_max); //
-                //                solution(i) = wd*dt + sol_prev(i);
-                //                sol_prev(i) = solution(i);
-            }
-
-            // Send velocity solution to topic, position is propagated in order to inform low level controller about the expected end position of the current step.
-            // For example if something goes wrong and communication is lost the low level controller should start reducing reference velocity if position is exceeded..!!!
-            q_.data += 2.0*dt*solution; //Allow for a few lost samples.. (2x dt)
-            // First Nj joints, are for the first arm!!! will probably change
-            if( task_start == 0){
-                for(i=0; i<Nj; i++){
-                    msg.position[i] = q_.data[i];
-                    msg.velocity[i] = 0;
-                    msg.effort[i] = 0;
-                }
-            }
-            else{
-                for(i=0; i<Nj; i++){
-                    msg.position[i] = q_.data[i];
-                    msg.velocity[i] = solution[i];
-                    msg.effort[i] = 0;
-                }
-            }
-            msg.header.stamp = ros::Time::now();
-            joint_publisher.publish(msg);
-
-            //std::cout <<"ep:\n" << ep <<"\n\n";
-            //std::cout <<"x_m:\n" << x_m <<"\n\n";
-            //std::cout <<"x_ref:\n" << x_ref <<"\n\n";
-            //std::cout <<"q:\n"<< q*180.0/M_PI <<"\n\n";
-
-            clock_gettime(CLOCK_MONOTONIC_RAW,&tv);
-            tic = ((double)tv.tv_sec + 1.0e-9*tv.tv_nsec) - tic;
-            //printf("time:%f\n",tic);
-       }
-       
-	//std::cout <<( ros::Time::now().toSec() - t1 )<<"\n" ;
+	    //std::cout <<( ros::Time::now().toSec() - t1 )<<"\n" ;
 
         ros::spinOnce(); // Keep spin out of control loop to keep q,pos etc. up to date
         loop_rate->sleep();
@@ -780,4 +806,3 @@ int main(int argc, char *argv[])
     ros::shutdown();
     return 0;
 }
-
