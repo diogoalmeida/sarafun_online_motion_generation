@@ -128,7 +128,7 @@ Eigen::Vector3d pdddot,pddot,pd, kd;
 static double theta_dddot=0, theta_ddot=0, theta_d;
 static double wd,wd_max;
 double t0, t1;
-static double g_error_thres = 0.01;
+static double g_error_thres = 0.05;
 
 
 inline void toEigen(Eigen::Vector3d &V, const KDL::Vector& V_ ) {
