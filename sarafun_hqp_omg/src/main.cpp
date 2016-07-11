@@ -15,8 +15,11 @@
 #include <kdl_parser/kdl_parser.hpp>
 #include <kdl/chainjnttojacsolver.hpp>
 #include <kdl/chainfksolverpos_recursive.hpp>
+#include <kdl/chainiksolverpos_lma.hpp>
 #include <urdf/model.h>
 #include <visualization_msgs/Marker.h>
+#include <kdl_conversions/kdl_msg.h>
+#include <math.h>
 
 // No actual need for mtxs currently..
 #include <mutex>
@@ -102,6 +105,7 @@ Eigen::Quaternion<double> Q_ref,Q_msr;
 std::vector<double> joint_lim_min,joint_lim_max;
 KDL::ChainJntToJacSolver *JacSolver_;
 KDL::ChainFkSolverPos_recursive *fkSolver_;
+KDL::ChainIkSolverPos_LMA *ikSolver_;
 KDL::Chain chain_;
 KDL::Tree tree_;
 KDL::Jacobian J_;
@@ -124,6 +128,7 @@ Eigen::Vector3d pdddot,pddot,pd, kd;
 static double theta_dddot=0, theta_ddot=0, theta_d;
 static double wd,wd_max;
 double t0, t1;
+static double g_error_thres = 0.01;
 
 
 inline void toEigen(Eigen::Vector3d &V, const KDL::Vector& V_ ) {
@@ -356,30 +361,30 @@ bool addObs_sarafun(PROJECT_NAME::addObs::Request &req,PROJECT_NAME::addObs::Res
 
 /** getReferencePose
  */
-void getReferencePose()
+void getReferencePose(geometry_msgs::Pose ref)
 {
-    if(!nh->getParam("ref_pose",ref_pose)){
-        ROS_INFO("No ref pose set, use measured intial pose\n");
-        task_start = 0;
-        g_new_ref = 0;
-    }
-    else{
-        x_ref << ref_pose[0],ref_pose[1],ref_pose[2];
-        Q_ref.w() = ref_pose[3];
-        Q_ref.x() = ref_pose[4];
-        Q_ref.y() = ref_pose[5];
-        Q_ref.z() = ref_pose[6];
-        R_ref = Q_ref.toRotationMatrix();
-        ROS_INFO("Ref pose set to, x:%f, y:%f, z:%f",x_ref[0],x_ref[1],x_ref[2]);
-        task_start = 1;
-        g_new_ref = 1;
-    }
-    // Initialize globals,msgs before subscribing
-    g_q = q;
-    g_x_ref = x_ref;
-    g_x_msr = x_ref;
-    g_Q_ref = Q_ref;
-    g_R_ref = R_ref;
+    
+	x_ref << ref.position.x, ref.position.y, ref.position.z;
+	Q_ref.w() = ref.orientation.x;
+	Q_ref.x() = ref.orientation.y;
+	Q_ref.y() = ref.orientation.z;
+	Q_ref.z() = ref.orientation.w;
+	R_ref = Q_ref.toRotationMatrix();
+	ROS_INFO("Ref pose set to, x:%f, y:%f, z:%f",x_ref[0],x_ref[1],x_ref[2]);
+	g_new_ref = 1;
+    
+	// Initialize globals,msgs before subscribing
+	
+	if (task_start != 1)
+	{
+		g_q = q;
+	
+	}
+	g_x_ref = x_ref;
+	g_x_msr = x_ref;
+	g_Q_ref = Q_ref;
+	g_R_ref = R_ref;
+	task_start = 1;
 }
 
 /** getObstacles
@@ -387,6 +392,7 @@ void getReferencePose()
 void getObstacles()
 {
     int i = 1;
+	obs.clear();
     while(nh->getParam("ob"+std::to_string(i),ob_tmp)){
         ROS_INFO("Found obstacle ob%d, orig: %f,%f,%f, radius:%f",i,ob_tmp[0],ob_tmp[1],ob_tmp[2],ob_tmp[3]);
         ob.origin << ob_tmp[0],ob_tmp[1],ob_tmp[2];
@@ -592,6 +598,34 @@ void controlIteration(int new_ref)
    }
 }
 
+/** computeError
+ * @ goal: desired end effector Pose
+ *
+ * Computes the error between the current
+ * arm position and the desired position for the goal
+ */
+double computeError(geometry_msgs::Pose goal)
+{
+	KDL::Frame goal_frame, current_frame;
+	KDL::Vector error;
+	double d_error = 0.0;
+	
+	tf::poseMsgToKDL(goal, goal_frame);
+	fkSolver_->JntToCart(q_, current_frame);
+
+	error = current_frame.p - goal_frame.p;
+	
+	for (int i = 0; i < 3; i ++)
+	{
+		d_error += pow(error(i), 2);
+	}
+
+	d_error = sqrt(d_error);
+
+	return d_error;
+}
+
+
 /** controlCallback
 * @goal: actionlib goal received when server is called
  */
@@ -599,10 +633,12 @@ void controlCallback(const sarafun_hqp_omg::OnlineMotionGoalConstPtr &goal)
 {
     int new_ref = g_new_ref;
     bool success = false;
+	double error = 100000.0;
+	sarafun_hqp_omg::OnlineMotionFeedback feedback;
 
     ROS_INFO("%s server called! Will execute", actionlib_server_name.c_str());
 
-    getReferencePose();
+    getReferencePose(goal->ref);
     getObstacles();
 
     while( ros::ok() && (start == 1)){ //We need ROS, start (that is, initiliazied HQP) and a g_new_q
@@ -624,6 +660,16 @@ void controlCallback(const sarafun_hqp_omg::OnlineMotionGoalConstPtr &goal)
          }
 
          controlIteration(new_ref);
+		 error = computeError(goal->ref);
+
+		 feedback.error = error;
+		 as->publishFeedback(feedback);
+
+		 if (error < g_error_thres)
+		 {
+			 success = true;
+			 break;
+		 }
 
          //std::cout <<( ros::Time::now().toSec() - t1 )<<"\n" ;
 
@@ -681,6 +727,7 @@ int main(int argc, char *argv[])
         Nj = chain_.getNrOfJoints();
         fkSolver_ = new KDL::ChainFkSolverPos_recursive(chain_);
         JacSolver_ = new KDL::ChainJntToJacSolver(chain_);
+		ikSolver_ = new KDL::ChainIkSolverPos_LMA(chain_);
         std::cout << "Get chain from:"<< chain_root <<", to:"<< s->first <<", Nj:" << Nj <<"\n";
 
         // !!! Currently used only for Yumi Initialisation !!! (if used with KUKA same joints are repeated.. not a problem but will be fixed)
@@ -744,8 +791,18 @@ int main(int argc, char *argv[])
         J_.resize(Nj);
         q_.resize(Nj);
         Fr_ = KDL::Frame::Identity();
+		geometry_msgs::Pose init_pose;
 
-        getReferencePose();
+		init_pose.position.x = 0;
+		init_pose.position.y = 0;
+		init_pose.position.z = 0;
+		init_pose.orientation.w = 1;
+		init_pose.orientation.x = 0;
+		init_pose.orientation.y = 0;
+		init_pose.orientation.z = 0;
+
+
+        getReferencePose(init_pose);
         getObstacles();
 
         // Need a topic to read robot's q

@@ -1,8 +1,7 @@
 #goal definition
-bool new_goal
+geometry_msgs/Pose ref
 ---
 #result definition
-
 ---
 #feedback
-float64[] commanded_velocities
+float64 error  

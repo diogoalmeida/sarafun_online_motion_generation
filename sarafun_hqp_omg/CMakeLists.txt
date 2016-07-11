@@ -23,6 +23,7 @@ find_package(catkin REQUIRED COMPONENTS
     actionlib_msgs
     genmsg
     geometry_msgs
+	kdl_conversions
 )
 find_package(Boost REQUIRED COMPONENTS system)
 
@@ -89,7 +90,7 @@ generate_messages(DEPENDENCIES actionlib_msgs std_msgs geometry_msgs)
 catkin_package(
   INCLUDE_DIRS include
   LIBRARIES
-  CATKIN_DEPENDS  roscpp actionlib_msgs std_msgs message_runtime
+  CATKIN_DEPENDS  roscpp actionlib_msgs std_msgs message_runtime kdl_conversions
   DEPENDS orocos_kdl
 )
 
