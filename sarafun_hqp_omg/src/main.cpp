@@ -842,11 +842,11 @@ int main(int argc, char *argv[])
 
 
         init_Service = nh->advertiseService("init_HQP", init_hqp);
-	if(ENABLE_HQP_FOR_OBS){
-	  addObs_Service = nh->advertiseService("addObs_HQP", addObs);
-	}else{
-	  addObs_Service = nh->advertiseService("addObs_HQP", addObs_sarafun);
-	}
+		if(ENABLE_HQP_FOR_OBS){
+		  addObs_Service = nh->advertiseService("addObs_HQP", addObs);
+		}else{
+		  addObs_Service = nh->advertiseService("addObs_HQP", addObs_sarafun);
+		}
 
         for(i = 0; i<Nj; i++){
             qmin(i) = joint_lim_min[i];

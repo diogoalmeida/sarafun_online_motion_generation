@@ -51,8 +51,8 @@
 		<rosparam param="ob2">[0.17, -0.60, 0.1 ,0.12]</rosparam>
 		<rosparam param="ob3">[0.1, 0.54, 0.2 , 0.32]</rosparam>
 		-->	
-		<rosparam param="ob1">[0.5, 0.1, 0.6, 0.05]</rosparam>
-		<rosparam param="ob2">[0.5, 0.1, 0.6, 0.10]</rosparam>
+		<rosparam param="ob1">[0.3, 0.45, 0.5, 0.05]</rosparam>
+		<rosparam param="ob2">[0.5, 0.3, 0.1, 0.05]</rosparam>
 		
 		<!--			
 		set msr_pose_topic to  NULL to calculate pose from FK, else uses the topic to read current robot's pose
