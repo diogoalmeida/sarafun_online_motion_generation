@@ -21,6 +21,7 @@ The repository contains ROS wrapper for HQP solver, with the following tasks add
 * ROS Indigo  ...
 * git
 * The `abb_irb14000_support` package
+* armadillo C++ library (sudo apt-get install libarmadillo-dev)
 * You need the main HQP solver from https://github.com/stack-of-tasks/
 
 To build 
