@@ -1,19 +1,19 @@
 <launch>
 	<arg name="node_name" default="hqp_node" />
 	<!--
-	if useSim = true, for use with rViz, it integrates the solution. msr_q_topic should not be active publishing 
-	-->					
+	if useSim = true, for use with rViz, it integrates the solution. msr_q_topic should not be active publishing
+	-->
 	<arg name="simmode"  default="false" />
 
 	<!--
-	safetyDst is added to obstacle's radius, since, for the moment, robot's end effector is modeled as a point 
-	-->			
+	safetyDst is added to obstacle's radius, since, for the moment, robot's end effector is modeled as a point
+	-->
 	<arg name="safetyDst" default="0.1" />
-	
+
 	<!--
 	"model" is the name of the xacro file describing the robot
 	"rvizconfig" is the rviz settings file
-	
+
 	For ABB Yumi use this:
 	<arg name="model" default="$(find abb_irb14000_support)/urdf/irb14000.xacro" />
 	<arg name="rvizconfig" default="$(find sarafun_hqp_omg)/rviz_abb.rviz" />
@@ -21,82 +21,81 @@
 	For KUKA LWR use:
 	<arg name="model" default="$(find lwr_description)/urdf/lwr_robot.xacro" />
 	<arg name="rvizconfig" default="$(find sarafun_hqp_omg)/rviz_kuka.rviz" />
-	-->	
-	
+	-->
+
 	<arg name="model" default="$(find abb_irb14000_support)/urdf/irb14000.xacro" />
 	<arg name="rvizconfig" default="$(find sarafun_hqp_omg)/rviz_abb.rviz" />
-		
+
 	<node pkg="sarafun_hqp_omg" name="$(arg node_name)" type="sarafun_hqp_omg" output="screen">
 		<!--
 		if autostart =1, initialises and starts the node, if not it waits for calling init service
-		-->			
+		-->
 		<param name="autoStart"  type="int" value="1" />
-		
+
 		<param name="safeDst" value="$(arg safetyDst)" />
 		<param name="useSim"    type="bool" value="$(arg simmode)" />
-		<param name="robot_description" command="$(find xacro)/xacro.py $(arg model)" />		
+		<param name="robot_description" command="$(find xacro)/xacro.py $(arg model)" />
 
 		<!--
 		IF joint_lim_min, joint_lim_max are set, limits found in urdf are overrided
 		<rosparam param="joint_lim_min">[-2.9671, -2.0944, -2.9671,  -2.0944,  -2.9671,  -2.0944,  -2.9671]</rosparam>
 		<rosparam param="joint_lim_max">[2.9671, 2.0944,  2.9671,  2.0944,   2.9671,   2.0944,   2.9671]</rosparam>
-		-->	
-		
-	
+		-->
+
+
 		<!--
 		obstacle is a sphere at [x y z radius], must be sequentially numbered starting from ob1,
-		or add them to the parameter server. 
+		or add them to the parameter server.
 		Naming scheme will change in future version to incorporate more geometries!!
 		<rosparam param="ob1">[0.18, -2.45, 0.0, 0.15]</rosparam>
 		<rosparam param="ob2">[0.17, -0.60, 0.1 ,0.12]</rosparam>
 		<rosparam param="ob3">[0.1, 0.54, 0.2 , 0.32]</rosparam>
-		-->	
+		-->
 		<rosparam param="ob1">[0.3, 0.45, 0.5, 0.05]</rosparam>
 		<rosparam param="ob2">[0.5, 0.3, 0.1, 0.05]</rosparam>
-		
-		<!--			
+
+		<!--
 		set msr_pose_topic to  NULL to calculate pose from FK, else uses the topic to read current robot's pose
 		<param name="msr_pose_topic" value="/kuka_server_node/pose"/>
 		<param name="msr_pose_topic" value="NULL"/>
 		-->
 		<param name="msr_pose_topic" value="NULL"/>
-		
-		<!--			
+
+		<!--
 		set msr_q_topic to topic publishing robot's measured q's (/joint_states)
 		-->
 		<param name="msr_q_topic" value="/kuka_server_node/joints"/>
-		
-		<!--			
+
+		<!--
 		set cmd_q_topic to topic commandinf robot's q, .e.g
 		<param name="cmd_q_topic" value="/kuka_server_node/joints_command"/>
 		<param name="cmd_q_topic" value="/joint_states"/>
 		-->
 		<param name="cmd_q_topic" value="/joint_states"/>
-		
-		<!--			
+
+		<!--
 		set ref_pose_topic to topic setting the reference pose
 		-->
 		<param name="ref_pose_topic" value="/$(arg node_name)/ref_pose_topic"/>
-		
+
 		<!--
 		Set as initial target pose [x,y,z,qw,qx,qy,qz], if not set use the measured pose. if qx..qw =0 keep the same orientation
 		<rosparam param="ref_pose">[-0., 0.5, 0.6, 1.0, 0., 0., 0.]</rosparam> /
-		<rosparam param="ref_pose">[-0., 0.5, 0.6, 1.0, 0., 0., 0.]</rosparam> 		
-		<rosparam param="ref_pose">[0.4, 0.4, 0.2, 0.0, 0.0, 1.0, 0.0]</rosparam> 
-		<rosparam param="ref_pose">[-0., 0.00, 1.5, 1.0, 0.0, 0.0, 0.0]</rosparam> 
-		<rosparam param="ref_pose">[-0.4, 0.400, 0.5, 0.0, 0.0, 1.0, 0.0]</rosparam> 
-		-->			
-		<rosparam param="ref_pose">[0.0, 0.3, 0.2, 1.0, 0.0, 0.0, 0.0]</rosparam> 
+		<rosparam param="ref_pose">[-0., 0.5, 0.6, 1.0, 0., 0., 0.]</rosparam>
+		<rosparam param="ref_pose">[0.4, 0.4, 0.2, 0.0, 0.0, 1.0, 0.0]</rosparam>
+		<rosparam param="ref_pose">[-0., 0.00, 1.5, 1.0, 0.0, 0.0, 0.0]</rosparam>
+		<rosparam param="ref_pose">[-0.4, 0.400, 0.5, 0.0, 0.0, 1.0, 0.0]</rosparam>
+		-->
+		<rosparam param="ref_pose">[0.0, 0.3, 0.2, 1.0, 0.0, 0.0, 0.0]</rosparam>
 	</node>
-	
-	
+
+
 	<group if="$(arg simmode)">
 		<arg name="gui" default="False" />
-		<param name="robot_description" command="$(find xacro)/xacro.py $(arg model)" />	
+		<param name="robot_description" command="$(find xacro)/xacro.py $(arg model)" />
 		<param name="use_gui" value="$(arg gui)"/>
 		<node name="robot_state_publisher" pkg="robot_state_publisher" type="state_publisher" />
 		<node name="rviz" pkg="rviz" type="rviz" args="-d $(arg rvizconfig)" required="true" />
 	</group>
-	
-</launch>
 
+</launch>

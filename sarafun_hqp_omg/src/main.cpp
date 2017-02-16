@@ -363,7 +363,7 @@ bool addObs_sarafun(PROJECT_NAME::addObs::Request &req,PROJECT_NAME::addObs::Res
  */
 void getReferencePose(geometry_msgs::Pose ref)
 {
-    
+
 	x_ref << ref.position.x, ref.position.y, ref.position.z;
 	Q_ref.w() = ref.orientation.x;
 	Q_ref.x() = ref.orientation.y;
@@ -372,13 +372,13 @@ void getReferencePose(geometry_msgs::Pose ref)
 	R_ref = Q_ref.toRotationMatrix();
 	ROS_INFO("Ref pose set to, x:%f, y:%f, z:%f",x_ref[0],x_ref[1],x_ref[2]);
 	g_new_ref = 1;
-    
+
 	// Initialize globals,msgs before subscribing
-	
+
 	if (task_start != 1)
 	{
 		g_q = q;
-	
+
 	}
 	g_x_ref = x_ref;
 	g_x_msr = x_ref;
@@ -609,12 +609,12 @@ double computeError(geometry_msgs::Pose goal)
 	KDL::Frame goal_frame, current_frame;
 	KDL::Vector error;
 	double d_error = 0.0;
-	
+
 	tf::poseMsgToKDL(goal, goal_frame);
 	fkSolver_->JntToCart(q_, current_frame);
 
 	error = current_frame.p - goal_frame.p;
-	
+
 	for (int i = 0; i < 3; i ++)
 	{
 		d_error += pow(error(i), 2);

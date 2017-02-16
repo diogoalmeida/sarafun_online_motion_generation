@@ -2,7 +2,7 @@
 #define HQP_WRAPPER_H
 
 
-#include <soth/HCOD.hpp>
+#include "HCOD.hpp"
 #include <eigen3/Eigen/Dense>
 
 
