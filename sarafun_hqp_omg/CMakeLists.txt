@@ -117,7 +117,7 @@ set( Srcs src/main.cpp src/hqp_wrapper.cpp src/obsav_controller.cpp  src/obstacl
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
 
-file(GLOB_RECURSE ALL_HEADERS include/*.h include/*.hpp)
+file(GLOB_RECURSE ALL_HEADERS include/*.h)
 
 # USED only for some QTcreator stupidity between versions... ??
 add_library(${PROJECT_NAME}_testlib ${Srcs} ${ALL_HEADERS})
